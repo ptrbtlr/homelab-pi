@@ -1,22 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: kube-prom-grafana
+  namespace: monitoring
   annotations:
-    deployment.kubernetes.io/revision: "4"
+    argocd.argoproj.io/tracking-id: grafana:apps/Deployment:monitoring/kube-prom-grafana
+    deployment.kubernetes.io/revision: "3"
     meta.helm.sh/release-name: kube-prom
     meta.helm.sh/release-namespace: monitoring
-  creationTimestamp: "2025-11-01T02:53:57Z"
-  generation: 4
+    kubectl.kubernetes.io/restartedAt: "2025-11-03T22:53:43Z"
   labels:
     app.kubernetes.io/instance: kube-prom
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: grafana
     app.kubernetes.io/version: 12.2.1
     helm.sh/chart: grafana-10.1.4
-  name: kube-prom-grafana
-  namespace: monitoring
-  resourceVersion: "110292"
-  uid: c3c50a69-ff12-493e-9107-f602b234c85e
 spec:
   progressDeadlineSeconds: 600
   replicas: 1
@@ -37,8 +35,6 @@ spec:
         checksum/sc-dashboard-provider-config: e70bf6a851099d385178a76de9757bb0bef8299da6d8443602590e44f05fdf24
         checksum/secret: ea2c3add1fe94eab496b930a7651dc5286db6ed237ea45a39bafe7cf8d1c8bf9
         kubectl.kubernetes.io/default-container: grafana
-        kubectl.kubernetes.io/restartedAt: "2025-11-02T23:25:07Z"
-      creationTimestamp: null
       labels:
         app.kubernetes.io/instance: kube-prom
         app.kubernetes.io/name: grafana
@@ -47,7 +43,10 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - env:
+      - name: grafana-sc-dashboard
+        image: quay.io/kiwigrid/k8s-sidecar:1.30.10
+        imagePullPolicy: IfNotPresent
+        env:
         - name: METHOD
           value: WATCH
         - name: LABEL
@@ -63,36 +62,33 @@ spec:
         - name: REQ_USERNAME
           valueFrom:
             secretKeyRef:
-              key: admin-user
               name: kube-prom-grafana
+              key: admin-user
         - name: REQ_PASSWORD
           valueFrom:
             secretKeyRef:
-              key: admin-password
               name: kube-prom-grafana
+              key: admin-password
         - name: REQ_URL
           value: http://localhost:3000/api/admin/provisioning/dashboards/reload
         - name: REQ_METHOD
           value: POST
-        image: quay.io/kiwigrid/k8s-sidecar:1.30.10
-        imagePullPolicy: IfNotPresent
-        name: grafana-sc-dashboard
-        resources: {}
+        volumeMounts:
+        - name: sc-dashboard-volume
+          mountPath: /tmp/dashboards
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
-            drop:
-            - ALL
+            drop: ["ALL"]
           seccompProfile:
             type: RuntimeDefault
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
-        volumeMounts:
-        - mountPath: /tmp/dashboards
-          name: sc-dashboard-volume
-        - mountPath: /var/lib/grafana
-          name: grafana-storage
-      - env:
+
+      - name: grafana-sc-datasources
+        image: quay.io/kiwigrid/k8s-sidecar:1.30.10
+        imagePullPolicy: IfNotPresent
+        env:
         - name: METHOD
           value: WATCH
         - name: LABEL
@@ -106,49 +102,45 @@ spec:
         - name: REQ_USERNAME
           valueFrom:
             secretKeyRef:
-              key: admin-user
               name: kube-prom-grafana
+              key: admin-user
         - name: REQ_PASSWORD
           valueFrom:
             secretKeyRef:
-              key: admin-password
               name: kube-prom-grafana
+              key: admin-password
         - name: REQ_URL
           value: http://localhost:3000/api/admin/provisioning/datasources/reload
         - name: REQ_METHOD
           value: POST
-        image: quay.io/kiwigrid/k8s-sidecar:1.30.10
-        imagePullPolicy: IfNotPresent
-        name: grafana-sc-datasources
-        resources: {}
+        volumeMounts:
+        - name: sc-datasources-volume
+          mountPath: /etc/grafana/provisioning/datasources
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
-            drop:
-            - ALL
+            drop: ["ALL"]
           seccompProfile:
             type: RuntimeDefault
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
-        volumeMounts:
-        - mountPath: /etc/grafana/provisioning/datasources
-          name: sc-datasources-volume
-      - env:
+
+      - name: grafana
+        image: docker.io/grafana/grafana:12.2.1
+        imagePullPolicy: IfNotPresent
+        env:
         - name: POD_IP
           valueFrom:
             fieldRef:
-              apiVersion: v1
               fieldPath: status.podIP
         - name: GF_SECURITY_ADMIN_USER
           valueFrom:
             secretKeyRef:
-              key: admin-user
               name: kube-prom-grafana
+              key: admin-user
         - name: GF_SECURITY_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
-              key: admin-password
               name: kube-prom-grafana
+              key: admin-password
         - name: GF_PATHS_DATA
           value: /var/lib/grafana/
         - name: GF_PATHS_LOGS
@@ -157,106 +149,53 @@ spec:
           value: /var/lib/grafana/plugins
         - name: GF_PATHS_PROVISIONING
           value: /etc/grafana/provisioning
-        image: docker.io/grafana/grafana:12.2.1
-        imagePullPolicy: IfNotPresent
-        livenessProbe:
-          failureThreshold: 10
-          httpGet:
-            path: /api/health
-            port: 3000
-            scheme: HTTP
-          initialDelaySeconds: 60
-          periodSeconds: 10
-          successThreshold: 1
-          timeoutSeconds: 30
-        name: grafana
         ports:
         - containerPort: 3000
           name: grafana
-          protocol: TCP
-        - containerPort: 9094
-          name: gossip-tcp
-          protocol: TCP
-        - containerPort: 9094
-          name: gossip-udp
-          protocol: UDP
-        - containerPort: 6060
-          name: profiling
-          protocol: TCP
-        readinessProbe:
-          failureThreshold: 3
+        livenessProbe:
           httpGet:
             path: /api/health
             port: 3000
-            scheme: HTTP
-          periodSeconds: 10
-          successThreshold: 1
-          timeoutSeconds: 1
-        resources: {}
+          initialDelaySeconds: 60
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+        volumeMounts:
+        - name: config
+          mountPath: /etc/grafana/grafana.ini
+          subPath: grafana.ini
+        - name: sc-dashboard-volume
+          mountPath: /tmp/dashboards
+        - name: sc-dashboard-provider
+          mountPath: /etc/grafana/provisioning/dashboards/sc-dashboardproviders.yaml
+          subPath: provider.yaml
+        - name: sc-datasources-volume
+          mountPath: /etc/grafana/provisioning/datasources
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
-            drop:
-            - ALL
+            drop: ["ALL"]
           seccompProfile:
             type: RuntimeDefault
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
-        volumeMounts:
-        - mountPath: /etc/grafana/grafana.ini
-          name: config
-          subPath: grafana.ini
-        - mountPath: /tmp/dashboards
-          name: sc-dashboard-volume
-        - mountPath: /etc/grafana/provisioning/dashboards/sc-dashboardproviders.yaml
-          name: sc-dashboard-provider
-          subPath: provider.yaml
-        - mountPath: /etc/grafana/provisioning/datasources
-          name: sc-datasources-volume
-      dnsPolicy: ClusterFirst
-      enableServiceLinks: true
-      restartPolicy: Always
-      schedulerName: default-scheduler
+
       securityContext:
         fsGroup: 472
         runAsGroup: 472
         runAsNonRoot: true
         runAsUser: 472
-      serviceAccount: kube-prom-grafana
       serviceAccountName: kube-prom-grafana
-      shareProcessNamespace: false
-      terminationGracePeriodSeconds: 30
       volumes:
-      - configMap:
-          defaultMode: 420
+      - name: config
+        configMap:
           name: kube-prom-grafana
-        name: config
-      - emptyDir: {}
-        name: sc-dashboard-volume
-      - configMap:
-          defaultMode: 420
+      - name: sc-dashboard-volume
+        emptyDir: {}
+      - name: sc-dashboard-provider
+        configMap:
           name: kube-prom-grafana-config-dashboards
-        name: sc-dashboard-provider
-      - emptyDir: {}
-        name: sc-datasources-volume
+      - name: sc-datasources-volume
+        emptyDir: {}
       - name: grafana-storage
         persistentVolumeClaim:
           claimName: grafana-storage
-status:
-  conditions:
-  - lastTransitionTime: "2025-11-03T00:13:50Z"
-    lastUpdateTime: "2025-11-03T00:13:50Z"
-    message: Deployment does not have minimum availability.
-    reason: MinimumReplicasUnavailable
-    status: "False"
-    type: Available
-  - lastTransitionTime: "2025-11-03T00:12:57Z"
-    lastUpdateTime: "2025-11-03T00:13:50Z"
-    message: ReplicaSet "kube-prom-grafana-5458849855" is progressing.
-    reason: ReplicaSetUpdated
-    status: "True"
-    type: Progressing
-  observedGeneration: 4
-  replicas: 1
-  unavailableReplicas: 1
-  updatedReplicas: 1
