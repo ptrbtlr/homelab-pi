@@ -13,15 +13,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repo
+      # 1️⃣ Checkout repo with full history and push access
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # 2️⃣ Set up QEMU for ARM builds
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # 3️⃣ Set up Buildx for multi-arch
+      # 3️⃣ Set up Docker Buildx for multi-arch
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -32,11 +35,14 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 5️⃣ Auto-increment version tag
+      # 5️⃣ Auto-increment version number
       - name: Bump version tag
         id: bump
         run: |
           VERSION_FILE=".github/workflows/version.txt"
+          if [ ! -f "$VERSION_FILE" ]; then
+            echo "v1.0.0" > $VERSION_FILE
+          fi
           OLD_VERSION=$(cat $VERSION_FILE | tr -d 'v')
           MAJOR=$(echo $OLD_VERSION | cut -d. -f1)
           MINOR=$(echo $OLD_VERSION | cut -d. -f2)
@@ -44,17 +50,18 @@ jobs:
           NEW_VERSION="v${MAJOR}.${MINOR}.$((PATCH + 1))"
           echo "$NEW_VERSION" > $VERSION_FILE
           echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "🔢 Bumped version to $NEW_VERSION"
 
-      # 6️⃣ Commit & push the new version file
+      # 6️⃣ Commit & push new version file
       - name: Commit new version
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add .github/workflows/version.txt
           git commit -m "Bump version to ${{ env.VERSION }}" || echo "No changes to commit"
-          git push || echo "No push required"
+          git push origin HEAD:main || echo "No push needed"
 
-      # 7️⃣ Build and push Docker image (multi-arch)
+      # 7️⃣ Build and push multi-arch Docker image
       - name: Build and push Nginx image
         uses: docker/build-push-action@v5
         with:
@@ -65,6 +72,8 @@ jobs:
             cnpbtlrdev/nginx-homelab:latest
             cnpbtlrdev/nginx-homelab:${{ env.VERSION }}
 
-      # 8️⃣ Output the final version
+      # 8️⃣ Display the tags built
       - name: Show built image tags
-        run: echo "Built and pushed image - cnpbtlrdev/nginx-homelab:${{ env.VERSION }} (and latest)"
+        run: |
+          echo "✅ Built and pushed image: cnpbtlrdev/nginx-homelab:${{ env.VERSION }}"
+          echo "✅ Also pushed 'latest' tag"
