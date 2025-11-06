@@ -1,11 +1,16 @@
 name: Build and Push Nginx Image
 
+# 🧩 Permissions for committing version bumps
+permissions:
+  contents: write
+
 on:
   push:
     branches:
       - main
     paths:
       - 'apps/nginx/**'
+      - '.github/workflows/version.txt'
   workflow_dispatch:
 
 jobs:
@@ -13,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repo with full history and push access
+      # 1️⃣ Checkout repo with full history and write access
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -35,6 +40,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # 4.5️⃣ Ensure repo is up to date before bumping version
+      - name: Pull latest changes
+        run: |
+          git fetch origin main
+          git checkout main
+          git pull origin main
+
       # 5️⃣ Auto-increment version number
       - name: Bump version tag
         id: bump
@@ -43,23 +55,34 @@ jobs:
           if [ ! -f "$VERSION_FILE" ]; then
             echo "v1.0.0" > $VERSION_FILE
           fi
+
           OLD_VERSION=$(cat $VERSION_FILE | tr -d 'v')
           MAJOR=$(echo $OLD_VERSION | cut -d. -f1)
           MINOR=$(echo $OLD_VERSION | cut -d. -f2)
           PATCH=$(echo $OLD_VERSION | cut -d. -f3)
           NEW_VERSION="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+
           echo "$NEW_VERSION" > $VERSION_FILE
           echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
           echo "🔢 Bumped version to $NEW_VERSION"
 
-      # 6️⃣ Commit & push new version file
-      - name: Commit new version
+      # 6️⃣ Commit & push new version file safely
+      - name: Commit and push new version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add .github/workflows/version.txt
-          git commit -m "Bump version to ${{ env.VERSION }}" || echo "No changes to commit"
-          git push origin HEAD:main || echo "No push needed"
+          if git diff --cached --quiet; then
+            echo "⚠️ No version changes detected, skipping commit."
+            exit 0
+          fi
+
+          git commit -m "🔖 Bump version to ${{ env.VERSION }} [auto-build]"
+          git pull --rebase origin main
+          git push origin HEAD:main
 
       # 7️⃣ Build and push multi-arch Docker image
       - name: Build and push Nginx image
@@ -72,7 +95,7 @@ jobs:
             cnpbtlrdev/nginx-homelab:latest
             cnpbtlrdev/nginx-homelab:${{ env.VERSION }}
 
-      # 8️⃣ Display the tags built
+      # 8️⃣ Display built image tags
       - name: Show built image tags
         run: |
           echo "✅ Built and pushed image: cnpbtlrdev/nginx-homelab:${{ env.VERSION }}"
