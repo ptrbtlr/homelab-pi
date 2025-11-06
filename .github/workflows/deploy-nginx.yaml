@@ -5,32 +5,66 @@ on:
     branches:
       - main
     paths:
-      - 'apps/nginx/**'   # only run when something in nginx folder changes
+      - 'apps/nginx/**'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout repo
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2️⃣ Set up QEMU for ARM builds
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # 3️⃣ Set up Buildx for multi-arch
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 4️⃣ Log in to Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      # 5️⃣ Auto-increment version tag
+      - name: Bump version tag
+        id: bump
+        run: |
+          VERSION_FILE=".github/workflows/version.txt"
+          OLD_VERSION=$(cat $VERSION_FILE | tr -d 'v')
+          MAJOR=$(echo $OLD_VERSION | cut -d. -f1)
+          MINOR=$(echo $OLD_VERSION | cut -d. -f2)
+          PATCH=$(echo $OLD_VERSION | cut -d. -f3)
+          NEW_VERSION="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          echo "$NEW_VERSION" > $VERSION_FILE
+          echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # 6️⃣ Commit & push the new version file
+      - name: Commit new version
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .github/workflows/version.txt
+          git commit -m "Bump version to ${{ env.VERSION }}" || echo "No changes to commit"
+          git push || echo "No push required"
 
-      - name: Build and push nginx image (multi-arch)
+      # 7️⃣ Build and push Docker image (multi-arch)
+      - name: Build and push Nginx image
         uses: docker/build-push-action@v5
         with:
           context: ./apps/nginx
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: cnpbtlrdev/nginx-homelab:latest
+          tags: |
+            cnpbtlrdev/nginx-homelab:latest
+            cnpbtlrdev/nginx-homelab:${{ env.VERSION }}
+
+      # 8️⃣ Output the final version
+      - name: Show built image tags
+        run: echo "Built and pushed image - cnpbtlrdev/nginx-homelab:${{ env.VERSION }} (and latest)"
