@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'nginx/**'   # only run when something in nginx folder changes
+      - 'apps/nginx/**'   # only run when something in nginx folder changes
 
 jobs:
   build:
