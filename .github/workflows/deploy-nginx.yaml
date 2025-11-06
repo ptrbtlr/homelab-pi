@@ -24,6 +24,6 @@ jobs:
       - name: Build and push nginx image
         uses: docker/build-push-action@v5
         with:
-          context: ./nginx
+          context: ./apps/nginx
           push: true
           tags: cnpbtlrdev/nginx-homelab:latest
